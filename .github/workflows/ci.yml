@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: inrise
+          POSTGRES_PASSWORD: inrise
+          POSTGRES_DB: inrise_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U inrise"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      NODE_ENV: development
+      DATABASE_URL: postgres://inrise:inrise@localhost:5432/inrise_ci
+      SESSION_SECRET: ci-only-session-secret-this-is-32-chars-min-abcdef
+      QA_MOCK_EXTERNALS: "1"
+      # Minimal placeholder values so startup doesn't bail when modules lazy-check envs.
+      OPENAI_API_KEY: ci-placeholder-openai-key
+      ADMIN_BOOTSTRAP_EMAIL: ci-admin@inrise.local
+      ADMIN_BOOTSTRAP_PASSWORD: ci-admin-password-1234
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Push schema to CI database
+        run: npm run db:push -- --force
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke QA
+        run: npm run qa:smoke
